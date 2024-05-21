@@ -1,10 +1,30 @@
+import yaml
 import warnings
 import networkx as nx
+from multiagent.agent import Agent
 
 
 class Environment:
-    def __init__(self):
+    def __init__(self, config_path=None):
         self.network = nx.DiGraph()
+
+        if config_path is not None:
+            self.load(config_path)
+            self.initialise()
+
+    def load(self, config_path):
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        assert "agents" in config, "Config must contain an 'agents' key"
+
+        for agent_config in config["agents"]:
+            assert "name" in agent_config, f"All agents must include a 'name'"
+            assert (
+                "objective" in agent_config
+            ), f"All agents must include an 'objective'"
+            agent = Agent(**agent_config)
+            self.add_agent(agent)
 
     def add_agent(self, agent):
         self.network.add_node(agent.name, agent=agent)
@@ -29,16 +49,24 @@ class Environment:
             if node != agent_name:
                 self.network.add_edge(node, agent_name)
 
-    def connect(self):
-        for _, attrs in self.network.nodes(data=True):
-            agent = attrs.get("agent")
+    def initialise(self):
+        for agent in self.agents:
+            agent.set_environment(self)
+
             if agent.visible_to is None:
                 self.connect_public_agent(agent.name)
             else:
                 self.connect_private_agent(agent.name, agent.visible_to)
+
+        for agent in self.agents:
+            agent.initialise()
 
     def get_connected_agents(self, requester_name):
         return list(set(self.network.successors(requester_name)))
 
     def get_agent(self, agent_name):
         return self.network.nodes[agent_name]["agent"]
+
+    @property
+    def agents(self):
+        return [self.network.nodes[n]["agent"] for n in self.network.nodes]

@@ -9,7 +9,7 @@ class MarkdownLoader:
         self.raw_data = self.load(filepath)
         self.update(**vars)
 
-    def __str__(self):
+    def as_str(self):
         return self.data
 
     def update(self, **vars):

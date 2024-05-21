@@ -1,85 +1,92 @@
-import copy
+import re
+
 from langchain_openai.chat_models import ChatOpenAI
-from langchain_core.prompts import (
-    ChatPromptTemplate,
-    MessagesPlaceholder,
-)
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_community.chat_message_histories.in_memory import ChatMessageHistory
+
+from multiagent.utils import get_prompt, llm_request
+from multiagent.markdown_loader import MarkdownLoader
 
 
 class Agent:
-
     def __init__(
-        self, name, objectives, constraints="", visible_to: None | list[str] = None
+        self, name, objective, constraints="", visible_to: None | list[str] = None
     ):
         self.name = name
-        self.objectives = objectives
+        self.objective = objective
         self.constraints = constraints
         self.visible_to = visible_to
 
-        self.environment = None
-        self.session_id = "main_session"
-
         self.history = ChatMessageHistory()
-        self.model = ChatOpenAI(model="gpt-3.5-turbo")
-        self.prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    "You're an assistant who's good at {ability}. Respond in 20 words or fewer",
-                ),
-                MessagesPlaceholder(variable_name="history"),
-                ("human", "{input}"),
-            ]
-        )
-        self.runnable = self.prompt | self.model
-        self.with_message_history = RunnableWithMessageHistory(
-            self.runnable,
-            lambda _: self.history,
-            input_messages_key="input",
-            history_messages_key="history",
+        self.model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
+
+        self.environment = None
+        self.briefing_prompt = None
+        self.runnable = None
+        self.with_message_history = None
+
+    def set_environment(self, environment):
+        self.environment = environment
+
+    def initialise(self):
+        if self.environment is None:
+            raise RuntimeError("Cannot initialise agent before linking environment")
+
+        visible_list = self.environment.get_connected_agents(self.name)
+
+        self.briefing_prompt = get_prompt(
+            "prompts/initial_briefing.md",
+            agent_name=self.name,
+            agent_objective=self.objective,
+            visible_list=", ".join(visible_list),
+            visible_count=len(visible_list),
         )
 
-    def get_temporary_response(self, question):
-        # Create a deep copy of the main history for isolated responses
-        temp_history = copy.deepcopy(self.history)
-        temp_runnable = RunnableWithMessageHistory(
-            self.runnable,
-            lambda _: temp_history,
-            input_messages_key="input",
-            history_messages_key="history",
-        )
+        self.runnable = self.briefing_prompt | self.model
 
-        # Get the response from the temporary session
-        response = temp_runnable.invoke(
-            {"ability": "general knowledge", "input": question},
-            config={"configurable": {"session_id": self.session_id}},
-        )
+    def ephemeral_request(self, question):
+        return llm_request(question, self.runnable, self.history, ephemeral=True)
+
+    def persistent_request(self, question):
+        return llm_request(question, self.runnable, self.history, ephemeral=False)
+
+    def make_move(self, previous_transaction=None):
+        if previous_transaction is None:
+            invoke_turn_prompt = MarkdownLoader("prompts/invoke_first_turn.md").as_str()
+        else:
+            invoke_turn_prompt = MarkdownLoader(
+                "prompts/invoke_turn.md", **previous_transaction
+            ).as_str()
+
+        invalid_request_prompt = MarkdownLoader(
+            "prompts/invalid_request_format.md"
+        ).as_str()
+
+        strikeout = 5
+        i = 0
+        pattern = r"^\[([A-Za-z0-9]+)\]: (.+)$"
+
+        response = self.persistent_request(invoke_turn_prompt)
+        while not (match := re.match(pattern, response.content)):
+            if i >= strikeout:
+                return None
+
+            i += 1
+            response = self.persistent_request(invalid_request_prompt)
+
+        addressed_to = match.group(1)
+        message = match.group(2)
+        parsed_response = {"addressed_to": addressed_to, "message": message}
+
+        return parsed_response
+
+    def send_request(self, request_content, sender_name):
+        request_prompt = MarkdownLoader(
+            "prompts/send_request.md",
+            sender_name=sender_name,
+            request_content=request_content,
+            objective=self.objective,
+        ).as_str()
+
+        response = self.ephemeral_request(request_prompt)
+
         return response
-
-    def continue_conversation(self, prompt):
-        response = self.with_message_history.invoke(
-            {"ability": "general knowledge", "input": prompt},
-            config={"configurable": {"session_id": self.session_id}},
-        )
-        return response
-
-    # def set_environment(self, environment):
-    #     self.environment = environment
-
-    # def perform_task(self, task):
-    #     # Method to perform a task using the LLM
-    #     response = self.chain.invoke(task)
-    #     return response
-
-    # def discover_agents(self):
-    #     # Method to discover other agents in the environment
-    #     return self.environment.get_connected_agents(self.name)
-
-    # def make_request(self, agent_name, task):
-    #     # Method to make a request to another agent
-    #     agent = self.environment.get_agent(agent_name)
-    #     if agent:
-    #         return agent.perform_task(task)
-    #     return None
