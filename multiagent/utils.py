@@ -24,7 +24,7 @@ def get_prompt(filepath, **vars):
     )
 
 
-def llm_request(user_input, runnable, history, ephemeral=False):
+async def llm_request(user_input, runnable, history, ephemeral=False):
     if ephemeral:
         history = copy.deepcopy(history)
 
@@ -34,7 +34,7 @@ def llm_request(user_input, runnable, history, ephemeral=False):
         input_messages_key="input",
         history_messages_key="history",
     )
-    response = runnable.invoke(
+    response = await runnable.ainvoke(
         {"input": user_input},
         config={"configurable": {"session_id": "global"}},
     )

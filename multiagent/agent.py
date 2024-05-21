@@ -43,13 +43,13 @@ class Agent:
 
         self.runnable = self.briefing_prompt | self.model
 
-    def ephemeral_request(self, question):
-        return llm_request(question, self.runnable, self.history, ephemeral=True)
+    async def ephemeral_request(self, question):
+        return await llm_request(question, self.runnable, self.history, ephemeral=True)
 
-    def persistent_request(self, question):
-        return llm_request(question, self.runnable, self.history, ephemeral=False)
+    async def persistent_request(self, question):
+        return await llm_request(question, self.runnable, self.history, ephemeral=False)
 
-    def make_move(self, previous_transaction=None):
+    async def make_move(self, previous_transaction=None):
         if previous_transaction is None:
             invoke_turn_prompt = MarkdownLoader("prompts/invoke_first_turn.md").as_str()
         else:
@@ -65,13 +65,13 @@ class Agent:
         i = 0
         pattern = r"^\[([A-Za-z0-9]+)\]: (.+)$"
 
-        response = self.persistent_request(invoke_turn_prompt)
+        response = await self.persistent_request(invoke_turn_prompt)
         while not (match := re.match(pattern, response.content)):
             if i >= strikeout:
                 return None
 
             i += 1
-            response = self.persistent_request(invalid_request_prompt)
+            response = await self.persistent_request(invalid_request_prompt)
 
         addressed_to = match.group(1)
         message = match.group(2)
@@ -79,7 +79,7 @@ class Agent:
 
         return parsed_response
 
-    def send_request(self, request_content, sender_name):
+    async def send_request(self, request_content, sender_name):
         request_prompt = MarkdownLoader(
             "prompts/send_request.md",
             sender_name=sender_name,
@@ -87,6 +87,6 @@ class Agent:
             objective=self.objective,
         ).as_str()
 
-        response = self.ephemeral_request(request_prompt)
+        response = await self.ephemeral_request(request_prompt)
 
         return response
