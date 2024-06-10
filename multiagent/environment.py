@@ -1,20 +1,18 @@
-import yaml
 import warnings
 import networkx as nx
 from multiagent.agent import Agent
 
 
 class Environment:
-    def __init__(self, config_path=None):
+    def __init__(self, config=None):
         self.network = nx.DiGraph()
 
-        if config_path is not None:
-            self.load(config_path)
+        if config is not None:
+            self.load(config)
             self.initialise()
 
-    def load(self, config_path):
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
+    def load(self, config):
+        default_model = config.get("global", {}).get("default_model", "gpt-3.5-turbo")
 
         assert "agents" in config, "Config must contain an 'agents' key"
 
@@ -23,6 +21,9 @@ class Environment:
             assert (
                 "objective" in agent_config
             ), f"All agents must include an 'objective'"
+
+            agent_config["model"] = agent_config.get("model", default_model)
+
             agent = Agent(**agent_config)
             self.add_agent(agent)
 
@@ -70,3 +71,7 @@ class Environment:
     @property
     def agents(self):
         return [self.network.nodes[n]["agent"] for n in self.network.nodes]
+
+    @property
+    def agent_names(self):
+        return [self.network.nodes[n]["agent"].name for n in self.network.nodes]

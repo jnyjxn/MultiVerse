@@ -1,5 +1,7 @@
 global:
-  title: Experiment 1
+  name: experiment1
+  max_ticks: 20
+  default_model: gpt-3.5-turbo
 
 agents:
   -

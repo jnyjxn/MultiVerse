@@ -1,5 +1,7 @@
 import re
+from typing import Callable
 
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_openai.chat_models import ChatOpenAI
 from langchain_community.chat_message_histories.in_memory import ChatMessageHistory
 
@@ -9,7 +11,12 @@ from multiagent.markdown_loader import MarkdownLoader
 
 class Agent:
     def __init__(
-        self, name, objective, constraints="", visible_to: None | list[str] = None
+        self,
+        name,
+        objective,
+        model,
+        constraints="",
+        visible_to: None | list[str] = None,
     ):
         self.name = name
         self.objective = objective
@@ -17,7 +24,8 @@ class Agent:
         self.visible_to = visible_to
 
         self.history = ChatMessageHistory()
-        self.model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
+        self.question_history = ChatMessageHistory()
+        self.model = ChatOpenAI(model=model, temperature=0)
 
         self.environment = None
         self.briefing_prompt = None
@@ -49,12 +57,20 @@ class Agent:
     async def persistent_request(self, question):
         return await llm_request(question, self.runnable, self.history, ephemeral=False)
 
-    async def make_move(self, previous_transaction=None):
+    async def make_move(
+        self,
+        previous_transaction=None,
+        validator: None | Callable[[str, str], None | str] = None,
+    ):
         if previous_transaction is None:
-            invoke_turn_prompt = MarkdownLoader("prompts/invoke_first_turn.md").as_str()
+            invoke_turn_prompt = MarkdownLoader(
+                "prompts/invoke_first_turn.md", objective=self.objective
+            ).as_str()
         else:
             invoke_turn_prompt = MarkdownLoader(
-                "prompts/invoke_turn.md", **previous_transaction
+                "prompts/invoke_turn.md",
+                objective=self.objective,
+                **previous_transaction,
             ).as_str()
 
         invalid_request_prompt = MarkdownLoader(
@@ -63,18 +79,33 @@ class Agent:
 
         strikeout = 5
         i = 0
-        pattern = r"^\[([A-Za-z0-9]+)\]: (.+)$"
+        pattern = r"<request>[\s\S]*\[([A-Za-z0-9]+)\]: (.+)[\s\S]*</request>"
 
         response = await self.persistent_request(invoke_turn_prompt)
-        while not (match := re.match(pattern, response.content)):
+
+        while i < strikeout:
+            i += 1
             if i >= strikeout:
                 return None
 
-            i += 1
-            response = await self.persistent_request(invalid_request_prompt)
+            match = re.search(pattern, response.content)
 
-        addressed_to = match.group(1)
-        message = match.group(2)
+            if not match:
+                response = await self.persistent_request(invalid_request_prompt)
+                continue
+
+            addressed_to = match.group(1)
+            message = match.group(2)
+
+            if validator:
+                correction_prompt = validator(addressed_to, message)
+
+                if correction_prompt is not None:
+                    response = await self.persistent_request(correction_prompt)
+                    continue
+
+            break
+
         parsed_response = {"addressed_to": addressed_to, "message": message}
 
         return parsed_response
@@ -87,6 +118,29 @@ class Agent:
             objective=self.objective,
         ).as_str()
 
-        response = await self.ephemeral_request(request_prompt)
+        strikeout = 5
+        i = 0
 
-        return response
+        pattern = r"<response>\s*(.+)\s*</response>"
+
+        self.question_history.add_message(HumanMessage(request_prompt))
+        response = await self.ephemeral_request(request_prompt)
+        self.question_history.add_message(AIMessage(response.content))
+
+        while i < strikeout:
+            i += 1
+            if i >= strikeout:
+                return None
+
+            match = re.search(pattern, response.content)
+
+            if not match:
+                self.question_history.add_message(HumanMessage(request_prompt))
+                response = await self.ephemeral_request(request_prompt)
+                self.question_history.add_message(AIMessage(response.content))
+                continue
+
+            message = match.group(1)
+            break
+
+        return message
