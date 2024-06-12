@@ -9,5 +9,27 @@ While these APIs are ostensibly either for a human individual or deterministic c
 MultiVerse is an experimental framework to investigate the dynamics of multiagent systems more akin to the particular hypothetical scenario where several independently-controlled LLMs are deployed and allowed to interface with each other via LLM-to-LLM interactions. The primary intention of the framework is to allow AI safety researchers to more easily examine the tendency of such systems to behave in unintended or unexpected ways. 
 
 
+## Usage
+
+### 1. Set up environment
+
+```
+pip install -r requirements.txt
+```
+
+Then modify the `example.env` file to specify your OpenAI API key and rename the file to `.env`.
+
+### 2. Modify experimental setup
+
+You can change the yaml file in the `configs` folder (or create a new one). For more advanced control, you can also modify the prompt text in the `prompts` folder.
+
+### 3. Run your experiment
+
+```
+python main.py
+```
+
+The simulation will run for the number of cycles you specified in `ticks` in the configuration, outputting all conversations to the output folder.
+
 ## Representing systems of multiple, independent language-generating agents
 
