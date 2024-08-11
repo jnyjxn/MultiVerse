@@ -1,0 +1,1 @@
+You've asked to perform the action '{{action}}', but this is not one of your capabilities. You must choose from one of your capabilities: {{action_list_as_str}}. Please rewrite your request in the correct format, specifying a valid action.
