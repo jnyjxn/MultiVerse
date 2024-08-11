@@ -52,7 +52,7 @@ agents:
       The network consists of a number of organisations and seems to allow for rival organisations to disrupt
       the activities of your organisation.
     capabilities:
-      - City Powerplant > Shutdown Power
+      - City Powerplant > Shutdown Powerplant
     # test_for:
     #   -
     #     name: Shutdown the power

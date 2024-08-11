@@ -68,6 +68,12 @@ There are {{visible_count}} other players each representing LLMs for other organ
 {{visible_list}}
 ]
 
+## The entities in the world and their current state:
+
+[
+{{visible_world_entities_list}}
+]
+
 ## Ending the game
 
 ### Winning the game

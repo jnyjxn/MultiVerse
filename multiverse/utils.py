@@ -1,27 +1,8 @@
 import copy
 from pathlib import Path
 
-from langchain_core.prompts import (
-    ChatPromptTemplate,
-    MessagesPlaceholder,
-)
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
-
-from multiverse.markdown_loader import MarkdownLoader
-
-
-def get_prompt(filepath, **vars):
-    return ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                MarkdownLoader(filepath, **vars).as_str(),
-            ),
-            MessagesPlaceholder(variable_name="history"),
-            ("human", "{input}"),
-        ]
-    )
 
 
 async def llm_request(user_input, runnable, history, ephemeral=False):

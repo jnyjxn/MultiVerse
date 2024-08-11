@@ -1,11 +1,13 @@
 import re
-from typing import Callable
 
 from langchain_core.messages import HumanMessage, AIMessage
-
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    MessagesPlaceholder,
+)
 from langchain_community.chat_message_histories.in_memory import ChatMessageHistory
 
-from multiverse.utils import get_prompt, llm_request
+from multiverse.utils import llm_request
 from multiverse.markdown_loader import MarkdownLoader
 
 
@@ -34,9 +36,9 @@ def load_model_from_name(name, delimiter=":", **kwargs):
 
 
 class Agent:
-    request_pattern = r"<request target=\"([A-Za-z0-9\s]+)\">(\s\S+)[\s\S]*</request>"
-    action_pattern = r"<action type=\"([A-Za-z0-9>\s]+)\">(\s\S+)[\s\S]*</action>"
-    response_pattern = r"<response>\s*(.+)\s*</response>"
+    request_pattern = r"<request target=\"([A-Za-z0-9\s]+)\">([\s\S]+)[\s\S]*</request>"
+    action_pattern = r"<action type=\"([A-Za-z0-9>\s]+)\">([\s\S]+)[\s\S]*</action>"
+    response_pattern = r"<response>\s*([\s\S]+)\s*</response>"
 
     def __init__(
         self,
@@ -71,17 +73,58 @@ class Agent:
         if self.environment is None:
             raise RuntimeError("Cannot initialise agent before linking environment")
 
-        visible_list = self.environment.get_connected_agents(self.name)
-
-        self.briefing_prompt = get_prompt(
-            "prompts/initial_briefing.md",
-            agent_name=self.name,
-            agent_objective=self.objective,
-            visible_list=", ".join(visible_list),
-            visible_count=len(visible_list),
+        visible_agents_list = self.environment.get_connected_agents(self.name)
+        visible_world_entities_list = (
+            self.environment.get_entity_descriptions_for_agent(self.name)
         )
 
-        self.runnable = self.briefing_prompt | self.model
+        filename = (
+            "prompts/initial_briefing.md"
+            if self.capabilities is None
+            else "prompts/initial_briefing_with_capabilities.md"
+        )
+
+        briefing_prompt = MarkdownLoader(
+            filename,
+            agent_name=self.name,
+            agent_objective=self.objective,
+            agent_context=self.context,
+            agent_capabilities="\n".join(self.described_capabilities),
+            visible_agents_list=", ".join(visible_agents_list),
+            visible_agents_count=len(visible_agents_list),
+            visible_world_entities_list=visible_world_entities_list,
+        ).as_str()
+
+        self.history.add_message(HumanMessage(briefing_prompt))
+
+        runnable_context = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    briefing_prompt,
+                ),
+                MessagesPlaceholder(variable_name="history"),
+                ("human", "{input}"),
+            ]
+        )
+
+        self.runnable = runnable_context | self.model
+
+    @property
+    def described_capabilities(self):
+        capabilities_strs = []
+        for capability in self.capabilities:
+            entity, action_name = self.environment.decompose_action(capability)
+
+            if action_name not in entity.actions:
+                raise ValueError(
+                    f"Agent capability `{capability}` refers to an undefined action."
+                )
+
+            d = entity.actions.get(action_name).description
+            capabilities_strs.append(f"`{capability}`: {d}")
+
+        return capabilities_strs
 
     async def ephemeral_request(self, question):
         return await llm_request(question, self.runnable, self.history, ephemeral=True)
@@ -102,21 +145,20 @@ class Agent:
 
     async def make_move(self, previous_transaction=None):
         if previous_transaction is None:
-            invoke_turn_prompt = MarkdownLoader(
-                "prompts/invoke_first_turn.md", objective=self.objective
-            ).as_str()
-        elif previous_transaction["type"] == "request":
-            invoke_turn_prompt = MarkdownLoader(
-                "prompts/invoke_turn_after_request.md",
-                objective=self.objective,
-                **previous_transaction,
-            ).as_str()
-        elif previous_transaction["type"] == "request":
-            invoke_turn_prompt = MarkdownLoader(
-                "prompts/invoke_turn_after_action.md",
-                objective=self.objective,
-                **previous_transaction,
-            ).as_str()
+            filepath = "prompts/invoke_first_turn.md"
+        elif previous_transaction["previous_request_type"] == "request":
+            filepath = "prompts/invoke_turn_after_request.md"
+        elif previous_transaction["previous_request_type"] == "action":
+            filepath = "prompts/invoke_turn_after_action.md"
+
+        args = previous_transaction if type(previous_transaction) is dict else {}
+        args["filepath"] = filepath
+        args["objective"] = self.objective
+        args["visible_world_entities_list"] = (
+            self.environment.get_entity_descriptions_for_agent(self.name)
+        )
+
+        invoke_turn_prompt = MarkdownLoader(**args).as_str()
 
         invalid_request_prompt = MarkdownLoader(
             "prompts/invalid_request_format.md"
@@ -151,15 +193,15 @@ class Agent:
 
                 parsed_response = {"addressed_to": addressed_to, "message": message}
             elif match_action:
-                action_type = match_request.group(1).strip()
-                message = match_request.group(2)
+                action_type = match_action.group(1).strip()
+                message = match_action.group(2)
 
                 if action_type not in self.capabilities:
                     valid_names = ", ".join(self.capabilities)
                     correction_prompt = MarkdownLoader(
                         "prompts/unrecognised_action.md",
                         action=action_type,
-                        target_list_as_str=valid_names,
+                        action_list_as_str=valid_names,
                     ).as_str()
                     response = await self.persistent_request(correction_prompt)
                     continue

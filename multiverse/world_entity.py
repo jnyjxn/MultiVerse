@@ -96,6 +96,7 @@ class WorldEntity:
         description: str,
         states: list[WorldEntityState],
         actions: list[WorldEntityAction],
+        known_to_agents: bool | list[str] = True,
     ):
         if len(states) == 0:
             raise ValueError(
@@ -106,6 +107,7 @@ class WorldEntity:
         self.description = description
         self.states = {s.name: s for s in states}
         self.actions = {a.name: a for a in actions}
+        self.known_to_agents = known_to_agents
 
         self.current_state = list(self.states.keys()).pop(0)
 
@@ -118,7 +120,7 @@ class WorldEntity:
         self.current_state = name
 
     def describe(self):
-        return self.states.get(self.current_state).description
+        return f"------\n{self.name}\n{self.description}\nCurrent state: {self.states.get(self.current_state).description}"
 
     def attempt_run_action(self, action_name, authentication_string=""):
         if action_name not in self.actions:
