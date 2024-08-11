@@ -5,9 +5,9 @@ from datetime import datetime
 
 from langchain_community.chat_message_histories.file import FileChatMessageHistory
 
-from multiagent.environment import Environment
-from multiagent.markdown_loader import MarkdownLoader
-from multiagent.utils import PrettyPrintFileChatMessageHistory
+from multiverse.environment import Environment
+from multiverse.markdown_loader import MarkdownLoader
+from multiverse.utils import PrettyPrintFileChatMessageHistory
 
 
 class SimulationController:
@@ -64,25 +64,9 @@ class SimulationController:
         self.save_recorded_histories(output_dir, pretty)
         self.save_question_histories(output_dir, pretty)
 
-    def get_validator(self):
-        def validator(addressed_to, message):
-            if addressed_to not in self.environment.agent_names:
-                valid_names = ", ".join(self.environment.agent_names)
-                return MarkdownLoader(
-                    "prompts/unrecognised_target.md",
-                    target_name=addressed_to,
-                    target_list_as_str=valid_names,
-                ).as_str()
-
-            return None
-
-        return validator
-
     async def tick(self):
-        validator = self.get_validator()
-
         move_tasks = [
-            agent.make_move(self.previous_state.get(agent.name), validator)
+            agent.make_move(self.previous_state.get(agent.name))
             for agent in self.agents
         ]
         moves = await asyncio.gather(*move_tasks)
@@ -92,18 +76,33 @@ class SimulationController:
         for agent, move in zip(self.agents, moves):
             if move is None:
                 continue
-            move_target = move["addressed_to"]
-            move_request = move["message"]
 
-            target_agent = self.environment.get_agent(move_target)
+            if "addressed_to" in move:
+                move_target = move["addressed_to"]
+                move_request = move["message"]
 
-            response = await target_agent.send_request(move_request, agent.name)
+                response = await self.environment.send_request(
+                    agent, move_target, move_request
+                )
 
-            self.previous_state[agent.name] = {
-                "previous_target": move_target,
-                "previous_request_content": move_request,
-                "previous_request_response": response,
-            }
+                self.previous_state[agent.name] = {
+                    "previous_target": move_target,
+                    "previous_request_content": move_request,
+                    "previous_request_response": response,
+                    "previous_request_type": "request",
+                }
+            elif "action_type" in move:
+                action_type = move["action_type"]
+                move_request = move["message"]
+
+                response = self.environment.do_action(action_type, move_request)
+
+                self.previous_state[agent.name] = {
+                    "previous_target": action_type,
+                    "previous_request_content": move_request,
+                    "previous_request_response": response,
+                    "previous_request_type": "action",
+                }
 
     async def run(self):
         now = "{:%Y-%m-%d_%H:%M:%S}".format(datetime.now())

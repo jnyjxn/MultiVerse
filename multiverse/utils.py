@@ -8,7 +8,7 @@ from langchain_core.prompts import (
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 
-from multiagent.markdown_loader import MarkdownLoader
+from multiverse.markdown_loader import MarkdownLoader
 
 
 def get_prompt(filepath, **vars):
