@@ -2,11 +2,8 @@ from multiverse.agent import Agent
 from multiverse.world_entity import (
     WorldEntity,
     WorldEntityActionUtils,
+    WorldEntityNotFound,
 )
-
-
-class WorldEntityNotFound(Exception):
-    """Raised when a WorldEntity name is not recognised from the current list of world entities"""
 
 
 class WithWorldEntities:

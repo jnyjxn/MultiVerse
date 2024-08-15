@@ -1,12 +1,16 @@
-from typing import Type, Callable
+from typing import Callable
 from functools import partial
 
-from .base import Move, InvalidMoveSyntax
+from typing import TYPE_CHECKING
+
+from .base import Move, InvalidMoveSyntax, MoveOutcome
 from .agent_request import AgentRequest
 from .world_action import WorldAction
+from .null_move import NullMove
 
-from multiverse.agent import Agent
-from multiverse.environment import Environment
+if TYPE_CHECKING:
+    from multiverse.agent import Agent
+    from multiverse.environment import Environment
 
 
 def get_all_move_plugins():
@@ -42,10 +46,16 @@ class MoveManager:
     def __init__(self, max_retries_per_turn=3):
         self.max_retries_per_turn = max_retries_per_turn
         self.current_turn: dict[str, Callable] = {}
+        self.previous_turn_results: dict[str, MoveOutcome] = {}
         self.router = MoveRouter(get_all_move_plugins())
 
-    def process_agent_turn(self, agent: Agent, environment: Environment) -> Callable:
-        agent.queue_new_turn_message()
+    def prepare_agent_turn(
+        self,
+        previous_turn_result: MoveOutcome,
+        agent: "Agent",
+        environment: "Environment",
+    ) -> Callable:
+        agent.queue_new_turn_message(previous_turn_result)
 
         for _ in range(self.max_retries_per_turn):
             turn_command = agent.process_message_queue()
@@ -61,13 +71,15 @@ class MoveManager:
 
             return partial(executor, agent=agent, environment=environment)
 
-        return lambda _: None
+        return NullMove.execute
 
-    def prepare_turn(self, environment: Environment):
+    def prepare_turn(self, environment: "Environment"):
         self.current_turn = {
-            agent_name: self.process_agent_turn(agent, environment)
+            agent_name: self.prepare_agent_turn(
+                self.previous_turn_results.get(agent_name), agent, environment
+            )
             for agent_name, agent in environment.agents.items()
         }
 
     def execute_turn(self):
-        return {k: move() for k, move in self.current_turn}
+        self.previous_turn_results = {k: move() for k, move in self.current_turn}

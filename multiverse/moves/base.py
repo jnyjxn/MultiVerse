@@ -1,10 +1,11 @@
 import re
 from abc import ABC, abstractmethod
-from typing import Optional, Type, TypeVar, ClassVar, Generic
+from typing import Optional, Type, TypeVar, ClassVar, Generic, TYPE_CHECKING
 from dataclasses import dataclass, fields
 
-from multiverse.agent import Agent
-from multiverse.environment import Environment
+if TYPE_CHECKING:
+    from multiverse.agent import Agent
+    from multiverse.environment import Environment
 
 
 class InvalidMoveSyntax(Exception):
@@ -21,6 +22,12 @@ T = TypeVar("T", bound="MoveParameters")
 @dataclass
 class MoveParameters(ABC):
     content: str
+
+
+@dataclass
+class MoveOutcome(ABC):
+    params: Type[T]
+    response: str
 
 
 class Move(ABC, Generic[T]):
@@ -50,15 +57,11 @@ class Move(ABC, Generic[T]):
         return None
 
     @abstractmethod
-    def validate(self, agent: Agent, params: T, environment: Environment):
+    def validate(self, agent: "Agent", params: T, environment: "Environment"):
         pass
 
     @abstractmethod
-    def execute(self, agent: Agent, params: T, environment: Environment):
+    def execute(
+        self, agent: "Agent", params: T, environment: "Environment"
+    ) -> MoveOutcome:
         pass
-
-
-@dataclass
-class MoveOutcome(ABC):
-    params: Type[T]
-    response: str

@@ -8,6 +8,8 @@ from langchain_core.prompts import (
 )
 from langchain_community.chat_message_histories.in_memory import ChatMessageHistory
 
+from multiverse.moves import MoveOutcome, AgentRequest, WorldAction, NullMove
+
 
 def load_model_from_name(name, delimiter=":", **kwargs):
     if name.count(delimiter) != 1:
@@ -120,7 +122,18 @@ class Agent:
     def clear_message_queue(self):
         self.message_queue.clear()
 
-    def queue_new_turn_message(self):
+    def queue_new_turn_message(self, previous_turn_outcome: MoveOutcome | None):
+        if previous_turn_outcome is None:
+            pass
+        elif isinstance(previous_turn_outcome, AgentRequest):
+            pass
+        elif isinstance(previous_turn_outcome, WorldAction):
+            pass
+        elif isinstance(previous_turn_outcome, NullMove):
+            pass
+        else:
+            raise RuntimeError("Got unexpected previous_turn_outcome type")
+
         new_turn_prompt = "Ok next turn now. What will you do?"
         self.queue_message(new_turn_prompt)
 

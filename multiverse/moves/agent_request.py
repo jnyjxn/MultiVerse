@@ -1,7 +1,10 @@
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from multiverse.agent import Agent
-from multiverse.environment import Environment
+if TYPE_CHECKING:
+    from multiverse.agent import Agent
+    from multiverse.environment import Environment
+
 from multiverse.moves.base import Move, MoveParameters, MoveOutcome
 
 from multiverse.markdown_loader import MarkdownLoader
@@ -22,7 +25,7 @@ class AgentRequest(Move[AgentRequestParameters]):
     parameters_class = AgentRequestParameters
 
     def validate(
-        self, params: AgentRequestParameters, agent: Agent, environment: Environment
+        self, params: AgentRequestParameters, agent: "Agent", environment: "Environment"
     ):
         if params.target not in environment.agents:
             valid_names = ", ".join(environment.agents)
@@ -33,7 +36,7 @@ class AgentRequest(Move[AgentRequestParameters]):
             ).as_str()
 
     def execute(
-        self, params: AgentRequestParameters, agent: Agent, environment: Environment
+        self, params: AgentRequestParameters, agent: "Agent", environment: "Environment"
     ):
         response = environment.agents.get(params.target).request(
             params.content, ephemeral=True

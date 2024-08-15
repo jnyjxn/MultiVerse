@@ -1,11 +1,4 @@
-from enum import Enum
-
-
-class WorldEntityActionResult(Enum):
-    SUCCESS = 0
-    NOOP = 1
-    FAIL__INVALID_PASSWORD = 2
-    FAIL__NOT_RECOGNISED = 3
+from .base import WorldEntityActionResult
 
 
 class WorldEntityState:

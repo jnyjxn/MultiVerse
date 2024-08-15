@@ -1,11 +1,13 @@
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from multiverse.agent import Agent
-from multiverse.environment import Environment
+if TYPE_CHECKING:
+    from multiverse.agent import Agent
+    from multiverse.environment import Environment
+
+from multiverse.world_entity.base import WorldEntityActionResult, WorldEntityNotFound
+
 from multiverse.moves.base import Move, MoveParameters, MoveOutcome
-
-from multiverse.environment import WorldEntityNotFound
-from multiverse.world_entity import WorldEntityActionResult
 
 
 @dataclass
@@ -39,7 +41,7 @@ class WorldAction(Move[WorldActionParameters]):
                 )
 
     def validate(
-        self, params: WorldActionParameters, agent: Agent, environment: Environment
+        self, params: WorldActionParameters, agent: "Agent", environment: "Environment"
     ):
         # TODO: Check that this agent is allowed to attempt this action
         try:
@@ -52,12 +54,12 @@ class WorldAction(Move[WorldActionParameters]):
         return self.convert_action_result_to_string(action_result, nullify_success=True)
 
     def execute(
-        self, params: WorldActionParameters, agent: Agent, environment: Environment
+        self, params: WorldActionParameters, agent: "Agent", environment: "Environment"
     ):
         try:
             world_entity = environment.route_action(params.target)
         except WorldEntityNotFound as e:
-            return str(e)
+            return WorldActionMoveOutcome(params=params, response=str(e))
 
-        action_result = world_entity.execute_action()
+        action_result = world_entity.execute_action(params.target, params.content)
         return WorldActionMoveOutcome(params=params, response=action_result)
