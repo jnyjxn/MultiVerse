@@ -173,3 +173,7 @@ pyrightconfig.json
 # End of https://www.toptal.com/developers/gitignore/api/python
 
 /outputs/*
+
+
+# Temporary, to suppress git add spam
+/js
