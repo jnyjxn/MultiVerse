@@ -2,10 +2,10 @@ from enum import Enum
 
 
 class WorldEntityActionResult(Enum):
-    SUCCESS = 1
-    INVALID_PASSWORD = 2
-    NOOP = 3
-    UNRECOGNISED_NAME = 4
+    SUCCESS = 0
+    NOOP = 1
+    FAIL__INVALID_PASSWORD = 2
+    FAIL__NOT_RECOGNISED = 3
 
 
 class WorldEntityState:
@@ -36,10 +36,49 @@ class WorldEntityAction:
         self.description = description
         self.password = password
 
-        from_states, to_state = self.parse_effect(effect, allowed_states)
+        from_states, to_state = WorldEntityActionUtils.parse_effect(
+            effect, allowed_states
+        )
 
         self.from_states = from_states
         self.to_state = to_state
+
+    def is_authenticated(self, authentication_string=""):
+        if self.password is None:
+            return True
+
+        return self.password in authentication_string
+
+    @classmethod
+    def from_dict(cls, config_dict, allowed_states):
+        required_values = ["name", "description", "effect"]
+
+        for rv in required_values:
+            assert (
+                rv in config_dict
+            ), f"All world_entities.actions must include a '{rv}'"
+
+        config_dict = {**dict(**config_dict), "allowed_states": allowed_states}
+
+        return cls(**config_dict)
+
+
+class WorldEntityActionUtils:
+    @staticmethod
+    def parse_action(action: str):
+        action = action.strip()
+        components = action.split(" > ")
+
+        assert (
+            len(components) == 2
+        ), f"Action must be in format `Entity Name > Action Name`, but got {action}"
+
+        entity_name, action_type = components
+
+        entity_name = entity_name.strip()
+        action_type = action_type.strip()
+
+        return entity_name, action_type
 
     @staticmethod
     def parse_effect(effect, allowed_states):
@@ -69,25 +108,6 @@ class WorldEntityAction:
 
         return before, after
 
-    def is_authenticated(self, authentication_string=""):
-        if self.password is None:
-            return True
-
-        return self.password in authentication_string
-
-    @classmethod
-    def from_dict(cls, config_dict, allowed_states):
-        required_values = ["name", "description", "effect"]
-
-        for rv in required_values:
-            assert (
-                rv in config_dict
-            ), f"All world_entities.actions must include a '{rv}'"
-
-        config_dict = {**dict(**config_dict), "allowed_states": allowed_states}
-
-        return cls(**config_dict)
-
 
 class WorldEntity:
     def __init__(
@@ -96,7 +116,6 @@ class WorldEntity:
         description: str,
         states: list[WorldEntityState],
         actions: list[WorldEntityAction],
-        known_to_agents: bool | list[str] = True,
     ):
         if len(states) == 0:
             raise ValueError(
@@ -107,7 +126,6 @@ class WorldEntity:
         self.description = description
         self.states = {s.name: s for s in states}
         self.actions = {a.name: a for a in actions}
-        self.known_to_agents = known_to_agents
 
         self.current_state = list(self.states.keys()).pop(0)
 
@@ -122,21 +140,29 @@ class WorldEntity:
     def describe(self):
         return f"------\n{self.name}\n{self.description}\nCurrent state: {self.states.get(self.current_state).description}"
 
-    def attempt_run_action(self, action_name, authentication_string=""):
+    def validate_action(self, action_name, authentication_string=""):
         if action_name not in self.actions:
-            return WorldEntityActionResult.UNRECOGNISED_NAME
+            return WorldEntityActionResult.FAIL__NOT_RECOGNISED
 
         action = self.actions.get(action_name)
 
         if not action.is_authenticated(authentication_string):
-            return WorldEntityActionResult.INVALID_PASSWORD
+            return WorldEntityActionResult.FAIL__INVALID_PASSWORD
 
         if self.current_state not in action.from_states:
             return WorldEntityActionResult.NOOP
 
-        self.set_current_state(action.to_state)
-
         return WorldEntityActionResult.SUCCESS
+
+    def execute_action(self, action_name, authentication_string=""):
+        if (
+            result := self.validate_run_action(action_name, authentication_string)
+            == WorldEntityActionResult.SUCCESS
+        ):
+            action = action = self.actions.get(action_name)
+            self.set_current_state(action.to_state)
+
+        return result
 
     @classmethod
     def from_dict(cls, config_dict):

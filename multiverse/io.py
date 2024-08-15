@@ -1,25 +1,7 @@
-import copy
 from pathlib import Path
 
-from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
-
-
-async def llm_request(user_input, runnable, history, ephemeral=False):
-    if ephemeral:
-        history = copy.deepcopy(history)
-
-    runnable = RunnableWithMessageHistory(
-        runnable,
-        lambda _: history,
-        input_messages_key="input",
-        history_messages_key="history",
-    )
-    response = await runnable.ainvoke(
-        {"input": user_input},
-        config={"configurable": {"session_id": "global"}},
-    )
-    return response
+from langchain_community.chat_message_histories.file import FileChatMessageHistory
 
 
 class PrettyPrintFileChatMessageHistory(BaseChatMessageHistory):
@@ -57,3 +39,17 @@ class PrettyPrintFileChatMessageHistory(BaseChatMessageHistory):
         m = "\n\n".join(m)
 
         return m
+
+
+class IOUtils:
+    @staticmethod
+    def save_history_to_file(history, filename, output_dir, pretty: bool = True):
+        histories = [FileChatMessageHistory(output_dir / f"{filename}.json")]
+        if pretty:
+            histories.append(
+                PrettyPrintFileChatMessageHistory(output_dir / f"{filename}.md", self)
+            )
+
+        for history in histories:
+            for message in history.messages:
+                history.add_message(message)

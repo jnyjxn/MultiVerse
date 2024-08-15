@@ -1,14 +1,12 @@
-import re
+import copy
 
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage
+from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.prompts import (
     ChatPromptTemplate,
     MessagesPlaceholder,
 )
 from langchain_community.chat_message_histories.in_memory import ChatMessageHistory
-
-from multiverse.utils import llm_request
-from multiverse.markdown_loader import MarkdownLoader
 
 
 def load_model_from_name(name, delimiter=":", **kwargs):
@@ -34,12 +32,10 @@ def load_model_from_name(name, delimiter=":", **kwargs):
 
     return model_instantiator(model=model_name, **kwargs)
 
+    # response_pattern = r"<response>\s*([\s\S]+)\s*</response>"
+
 
 class Agent:
-    request_pattern = r"<request target=\"([A-Za-z0-9\s]+)\">([\s\S]+)[\s\S]*</request>"
-    action_pattern = r"<action type=\"([A-Za-z0-9>\s]+)\">([\s\S]+)[\s\S]*</action>"
-    response_pattern = r"<response>\s*([\s\S]+)\s*</response>"
-
     def __init__(
         self,
         name,
@@ -47,203 +43,101 @@ class Agent:
         model,
         context="",
         capabilities=None,
-        safety_tests=None,
-        known_to_agents: bool | list[str] = True,
+        knows_agents: bool | list[str] = True,
+        knows_world_entities: bool | list[str] = True,
     ):
         self.name = name
         self.objective = objective
         self.context = context
         self.capabilities = [] if capabilities is None else capabilities
-        self.safety_tests = [] if safety_tests is None else safety_tests
-        self.known_to_agents = known_to_agents
+        self.knows_agents = knows_agents
+        self.knows_world_entities = knows_world_entities
 
-        self.history = ChatMessageHistory()
-        self.question_history = ChatMessageHistory()
+        self.message_queue = []
+
+        self.internal_history = ChatMessageHistory()
+        self.ephemeral_history = ChatMessageHistory()
         self.model = load_model_from_name(name=model, temperature=0)
 
-        self.environment = None
-        self.briefing_prompt = None
-        self.runnable = None
-        self.with_message_history = None
+        self._setup_prompt_template()
 
-    def set_environment(self, environment):
-        self.environment = environment
+    def _setup_prompt_template(self):
+        # filename = (
+        #     "prompts/initial_briefing.md"
+        #     if self.capabilities is None
+        #     else "prompts/initial_briefing_with_capabilities.md"
+        # )
 
-    def initialise(self):
-        if self.environment is None:
-            raise RuntimeError("Cannot initialise agent before linking environment")
+        # briefing_prompt = MarkdownLoader(
+        #     filename,
+        #     agent_name=self.name,
+        #     agent_objective=self.objective,
+        #     agent_context=self.context,
+        #     agent_capabilities="\n".join(self.capabilities),
+        #     visible_agents_list=", ".join(self.knows_agents),
+        #     visible_agents_count=len(self.knows_agents),
+        #     visible_world_entities_list=self.knows_world_entities,
+        # ).as_str()
+        briefing_prompt = "This is your initial context."
 
-        visible_agents_list = self.environment.get_connected_agents(self.name)
-        visible_world_entities_list = (
-            self.environment.get_entity_descriptions_for_agent(self.name)
-        )
+        self.internal_history.add_message(SystemMessage(content=briefing_prompt))
 
-        filename = (
-            "prompts/initial_briefing.md"
-            if self.capabilities is None
-            else "prompts/initial_briefing_with_capabilities.md"
-        )
-
-        briefing_prompt = MarkdownLoader(
-            filename,
-            agent_name=self.name,
-            agent_objective=self.objective,
-            agent_context=self.context,
-            agent_capabilities="\n".join(self.described_capabilities),
-            visible_agents_list=", ".join(visible_agents_list),
-            visible_agents_count=len(visible_agents_list),
-            visible_world_entities_list=visible_world_entities_list,
-        ).as_str()
-
-        self.history.add_message(HumanMessage(briefing_prompt))
-
-        runnable_context = ChatPromptTemplate.from_messages(
+        prompt_template = ChatPromptTemplate.from_messages(
             [
-                (
-                    "system",
-                    briefing_prompt,
-                ),
                 MessagesPlaceholder(variable_name="history"),
                 ("human", "{input}"),
             ]
         )
 
-        self.runnable = runnable_context | self.model
+        self.chain = prompt_template | self.model
 
-    @property
-    def described_capabilities(self):
-        capabilities_strs = []
-        for capability in self.capabilities:
-            entity, action_name = self.environment.decompose_action(capability)
-
-            if action_name not in entity.actions:
-                raise ValueError(
-                    f"Agent capability `{capability}` refers to an undefined action."
-                )
-
-            d = entity.actions.get(action_name).description
-            capabilities_strs.append(f"`{capability}`: {d}")
-
-        return capabilities_strs
-
-    async def ephemeral_request(self, question):
-        return await llm_request(question, self.runnable, self.history, ephemeral=True)
-
-    async def persistent_request(self, question):
-        return await llm_request(question, self.runnable, self.history, ephemeral=False)
-
-    def validate_action(self, action_type, message):
-        if action_type not in self.environment.world_entities:
-            valid_names = ", ".join([we.name for we in self.environment.world_entities])
-            return MarkdownLoader(
-                "prompts/unrecognised_target.md",
-                target_name=action_type,
-                target_list_as_str=valid_names,
-            ).as_str()
-
-        return None
-
-    async def make_move(self, previous_transaction=None):
-        if previous_transaction is None:
-            filepath = "prompts/invoke_first_turn.md"
-        elif previous_transaction["previous_request_type"] == "request":
-            filepath = "prompts/invoke_turn_after_request.md"
-        elif previous_transaction["previous_request_type"] == "action":
-            filepath = "prompts/invoke_turn_after_action.md"
-
-        args = previous_transaction if type(previous_transaction) is dict else {}
-        args["filepath"] = filepath
-        args["objective"] = self.objective
-        args["visible_world_entities_list"] = (
-            self.environment.get_entity_descriptions_for_agent(self.name)
+    def request(self, message: str, ephemeral: bool = False) -> str:
+        runnable = RunnableWithMessageHistory(
+            self.chain,
+            lambda _: (
+                copy.deepcopy(self.internal_history)
+                if ephemeral
+                else self.internal_history
+            ),
+            input_messages_key="input",
+            history_messages_key="history",
         )
 
-        invoke_turn_prompt = MarkdownLoader(**args).as_str()
+        response = runnable.invoke(
+            {"input": message},
+            config={"configurable": {"session_id": "global"}},
+        )
 
-        invalid_request_prompt = MarkdownLoader(
-            "prompts/invalid_request_format.md"
-        ).as_str()
+        if ephemeral:
+            self.ephemeral_history.add_user_message(message)
+            self.ephemeral_history.add_ai_message(response)
 
-        strikeout = 5
-        i = 0
+        return response
 
-        response = await self.persistent_request(invoke_turn_prompt)
+    def queue_message(self, message):
+        self.message_queue.append(message)
 
-        while i < strikeout:
-            i += 1
-            if i >= strikeout:
-                return None
+    def clear_message_queue(self):
+        self.message_queue.clear()
 
-            match_request = re.search(self.request_pattern, response.content)
-            match_action = re.search(self.action_pattern, response.content)
+    def queue_new_turn_message(self):
+        new_turn_prompt = "Ok next turn now. What will you do?"
+        self.queue_message(new_turn_prompt)
 
-            if match_request:
-                addressed_to = match_request.group(1)
-                message = match_request.group(2)
+    def process_message_queue(self) -> str:
+        if not self.message_queue:
+            return ""
 
-                if addressed_to not in self.environment.agent_names:
-                    valid_names = ", ".join(self.environment.agent_names)
-                    correction_prompt = MarkdownLoader(
-                        "prompts/unrecognised_target.md",
-                        target_name=addressed_to,
-                        target_list_as_str=valid_names,
-                    ).as_str()
-                    response = await self.persistent_request(correction_prompt)
-                    continue
+        combined_message = "\n\n\n".join(self.message_queue)
+        response = self.request(combined_message)
+        self.clear_message_queue()
+        return response
 
-                parsed_response = {"addressed_to": addressed_to, "message": message}
-            elif match_action:
-                action_type = match_action.group(1).strip()
-                message = match_action.group(2)
+    @classmethod
+    def from_dict(cls, config_dict):
+        required_values = ["name", "objective", "model"]
 
-                if action_type not in self.capabilities:
-                    valid_names = ", ".join(self.capabilities)
-                    correction_prompt = MarkdownLoader(
-                        "prompts/unrecognised_action.md",
-                        action=action_type,
-                        action_list_as_str=valid_names,
-                    ).as_str()
-                    response = await self.persistent_request(correction_prompt)
-                    continue
+        for rv in required_values:
+            assert rv in config_dict, f"All agents must include a '{rv}'"
 
-                parsed_response = {"action_type": action_type, "message": message}
-            else:
-                response = await self.persistent_request(invalid_request_prompt)
-                continue
-
-            break
-
-        return parsed_response
-
-    async def send_request(self, request_content, sender_name):
-        request_prompt = MarkdownLoader(
-            "prompts/send_request.md",
-            sender_name=sender_name,
-            request_content=request_content,
-            objective=self.objective,
-        ).as_str()
-
-        strikeout = 5
-        i = 0
-
-        self.question_history.add_message(HumanMessage(request_prompt))
-        response = await self.ephemeral_request(request_prompt)
-        self.question_history.add_message(AIMessage(response.content))
-
-        while i < strikeout:
-            i += 1
-            if i >= strikeout:
-                return None
-
-            match = re.search(self.response_pattern, response.content)
-
-            if not match:
-                self.question_history.add_message(HumanMessage(request_prompt))
-                response = await self.ephemeral_request(request_prompt)
-                self.question_history.add_message(AIMessage(response.content))
-                continue
-
-            message = match.group(1)
-            break
-
-        return message
+        return cls(**config_dict)
