@@ -15,13 +15,16 @@ class WorldActionParameters(MoveParameters):
     target: str
 
 
-@dataclass
 class WorldActionMoveOutcome(MoveOutcome):
-    params: WorldActionParameters
+    result_prompt_filename = "invoke_turn_after_action.md"
+
+    def __init__(self, params: WorldActionParameters, response: str):
+        self.params = params
+        self.response = response
 
 
 class WorldAction(Move[WorldActionParameters]):
-    name = "WorldAction"
+    name = "action"
     parameters_class = WorldActionParameters
 
     @classmethod
@@ -45,7 +48,7 @@ class WorldAction(Move[WorldActionParameters]):
     ):
         # TODO: Check that this agent is allowed to attempt this action
         try:
-            world_entity = environment.route_action(params.target)
+            world_entity, _ = environment.route_action(params.target)
         except WorldEntityNotFound as e:
             return str(e)
 
@@ -57,7 +60,7 @@ class WorldAction(Move[WorldActionParameters]):
         self, params: WorldActionParameters, agent: "Agent", environment: "Environment"
     ):
         try:
-            world_entity = environment.route_action(params.target)
+            world_entity, _ = environment.route_action(params.target)
         except WorldEntityNotFound as e:
             return WorldActionMoveOutcome(params=params, response=str(e))
 

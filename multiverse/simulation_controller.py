@@ -20,15 +20,19 @@ class SimulationController:
         self.move_manager = MoveManager()
 
     def save_recorded_histories(self, output_dir, pretty=True):
-        for agent in self.agents:
+        for agent in self.environment.agents.values():
             IOUtils.save_history_to_file(
-                agent.internal_history, agent.name, output_dir, pretty
+                agent.internal_history, agent.name, output_dir, agent.name, pretty
             )
 
     def save_ephemeral_histories(self, output_dir, pretty=True):
-        for agent in self.agents:
+        for agent in self.environment.agents.values():
             IOUtils.save_history_to_file(
-                agent.ephemeral_history, f"{agent.name}_ephemeral", output_dir, pretty
+                agent.ephemeral_history,
+                f"{agent.name}_ephemeral",
+                output_dir,
+                agent.name,
+                pretty,
             )
 
     def save_histories(self, output_dir, pretty=True):

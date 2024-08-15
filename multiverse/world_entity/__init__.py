@@ -1,4 +1,4 @@
-from .base import WorldEntityActionResult
+from .base import WorldEntityActionResult, WorldEntityNotFound
 
 
 class WorldEntityState:
@@ -120,18 +120,19 @@ class WorldEntity:
         self.states = {s.name: s for s in states}
         self.actions = {a.name: a for a in actions}
 
-        self.current_state = list(self.states.keys()).pop(0)
+        self.current_state_name = list(self.states.keys()).pop(0)
 
-    def set_current_state(self, name):
+    def set_current_state_name(self, name):
         if name not in self.states:
             raise ValueError(
                 f"Cannot update WorldEntity `{self.name}`: new state {name} is not in the list of allowed states."
             )
 
-        self.current_state = name
+        self.current_state_name = name
 
-    def describe(self):
-        return f"------\n{self.name}\n{self.description}\nCurrent state: {self.states.get(self.current_state).description}"
+    @property
+    def current_state(self):
+        return self.states[self.current_state_name]
 
     def validate_action(self, action_name, authentication_string=""):
         if action_name not in self.actions:
@@ -142,7 +143,7 @@ class WorldEntity:
         if not action.is_authenticated(authentication_string):
             return WorldEntityActionResult.FAIL__INVALID_PASSWORD
 
-        if self.current_state not in action.from_states:
+        if self.current_state_name not in action.from_states:
             return WorldEntityActionResult.NOOP
 
         return WorldEntityActionResult.SUCCESS

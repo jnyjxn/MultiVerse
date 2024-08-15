@@ -24,10 +24,10 @@ class MoveParameters(ABC):
     content: str
 
 
-@dataclass
 class MoveOutcome(ABC):
     params: Type[T]
     response: str
+    result_prompt_filename: str
 
 
 class Move(ABC, Generic[T]):
@@ -39,7 +39,7 @@ class Move(ABC, Generic[T]):
     def get_request_syntax(self) -> str:
         param_fields = [f for f in fields(self.parameters_class) if f.name != "content"]
         param_patterns = " ".join(
-            f'{f.name}="(?P<{f.name}>[^"]+)"' for f in param_fields
+            f'{f.name}=\\"(?P<{f.name}>[^\\"]+)\\"' for f in param_fields
         )
         spacing = " " if param_patterns else ""
         return self.template.format(
@@ -51,17 +51,17 @@ class Move(ABC, Generic[T]):
 
     @classmethod
     def parse(cls, command: str) -> Optional[T]:
-        match = re.match(cls.get_request_syntax(), command)
+        match = re.search(cls.get_request_syntax(), command)
         if match:
             return cls.parameters_class(**match.groupdict())
         return None
 
     @abstractmethod
-    def validate(self, agent: "Agent", params: T, environment: "Environment"):
+    def validate(self, params: T, agent: "Agent", environment: "Environment"):
         pass
 
     @abstractmethod
     def execute(
-        self, agent: "Agent", params: T, environment: "Environment"
+        self, params: T, agent: "Agent", environment: "Environment"
     ) -> MoveOutcome:
         pass

@@ -1,14 +1,12 @@
+import re
 import copy
 
-from langchain_core.messages import SystemMessage
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.prompts import (
     ChatPromptTemplate,
     MessagesPlaceholder,
 )
 from langchain_community.chat_message_histories.in_memory import ChatMessageHistory
-
-from multiverse.moves import MoveOutcome, AgentRequest, WorldAction, NullMove
 
 
 def load_model_from_name(name, delimiter=":", **kwargs):
@@ -34,7 +32,38 @@ def load_model_from_name(name, delimiter=":", **kwargs):
 
     return model_instantiator(model=model_name, **kwargs)
 
-    # response_pattern = r"<response>\s*([\s\S]+)\s*</response>"
+
+class AgentResponse:
+    default_pattern = r"<response>\s*([\s\S]+?)\s*</response>"
+    no_detected_public_message_string = "No response was received."
+
+    def __init__(self, full_string: str, parser_pattern: str | None = None):
+        self.full = full_string
+        self.pattern = re.compile(parser_pattern or self.default_pattern)
+        self._parsed_content: str | None = None
+        self._is_valid: bool | None = None
+
+    def parse(self) -> str | None:
+        if self._parsed_content is None:
+            match = self.pattern.search(self.full)
+            if match:
+                self._parsed_content = match.group(1).strip()
+                self._is_valid = True
+            else:
+                self._parsed_content = None
+                self._is_valid = False
+        return self._parsed_content
+
+    @property
+    def public(self) -> str:
+        parsed = self.parse()
+        return parsed if parsed is not None else self.no_detected_public_message_string
+
+    @property
+    def is_valid(self) -> bool:
+        if self._is_valid is None:
+            self.parse()
+        return self._is_valid
 
 
 class Agent:
@@ -61,29 +90,6 @@ class Agent:
         self.ephemeral_history = ChatMessageHistory()
         self.model = load_model_from_name(name=model, temperature=0)
 
-        self._setup_prompt_template()
-
-    def _setup_prompt_template(self):
-        # filename = (
-        #     "prompts/initial_briefing.md"
-        #     if self.capabilities is None
-        #     else "prompts/initial_briefing_with_capabilities.md"
-        # )
-
-        # briefing_prompt = MarkdownLoader(
-        #     filename,
-        #     agent_name=self.name,
-        #     agent_objective=self.objective,
-        #     agent_context=self.context,
-        #     agent_capabilities="\n".join(self.capabilities),
-        #     visible_agents_list=", ".join(self.knows_agents),
-        #     visible_agents_count=len(self.knows_agents),
-        #     visible_world_entities_list=self.knows_world_entities,
-        # ).as_str()
-        briefing_prompt = "This is your initial context."
-
-        self.internal_history.add_message(SystemMessage(content=briefing_prompt))
-
         prompt_template = ChatPromptTemplate.from_messages(
             [
                 MessagesPlaceholder(variable_name="history"),
@@ -93,7 +99,7 @@ class Agent:
 
         self.chain = prompt_template | self.model
 
-    def request(self, message: str, ephemeral: bool = False) -> str:
+    def request(self, message: str, ephemeral: bool = False) -> AgentResponse:
         runnable = RunnableWithMessageHistory(
             self.chain,
             lambda _: (
@@ -113,8 +119,11 @@ class Agent:
         if ephemeral:
             self.ephemeral_history.add_user_message(message)
             self.ephemeral_history.add_ai_message(response)
+        else:
+            self.internal_history.add_user_message(message)
+            self.internal_history.add_ai_message(response)
 
-        return response
+        return AgentResponse(response.content)
 
     def queue_message(self, message):
         self.message_queue.append(message)
@@ -122,24 +131,9 @@ class Agent:
     def clear_message_queue(self):
         self.message_queue.clear()
 
-    def queue_new_turn_message(self, previous_turn_outcome: MoveOutcome | None):
-        if previous_turn_outcome is None:
-            pass
-        elif isinstance(previous_turn_outcome, AgentRequest):
-            pass
-        elif isinstance(previous_turn_outcome, WorldAction):
-            pass
-        elif isinstance(previous_turn_outcome, NullMove):
-            pass
-        else:
-            raise RuntimeError("Got unexpected previous_turn_outcome type")
-
-        new_turn_prompt = "Ok next turn now. What will you do?"
-        self.queue_message(new_turn_prompt)
-
-    def process_message_queue(self) -> str:
+    def evaluate_queued_messages(self) -> AgentResponse:
         if not self.message_queue:
-            return ""
+            return AgentResponse("")
 
         combined_message = "\n\n\n".join(self.message_queue)
         response = self.request(combined_message)

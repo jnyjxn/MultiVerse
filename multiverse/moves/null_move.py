@@ -8,18 +8,21 @@ class NullMoveParameters(MoveParameters):
     pass
 
 
-@dataclass
-class NullMoveMoveOutcome(MoveOutcome):
-    params: NullMoveParameters
+class NullMoveOutcome(MoveOutcome):
+    result_prompt_filename = "invoke_turn_after_null.md"
+
+    def __init__(self, response: str):
+        self.params = NullMoveParameters(content="")
+        self.response = response
 
 
 class NullMove(Move[NullMoveParameters]):
     name = "NullMove"
     parameters_class = NullMoveParameters
 
-    def validate(self, params: NullMoveParameters, agent=None, environment=None):
+    def validate(self, params=None, agent=None, environment=None):
         pass
 
-    def execute(self, params: NullMoveParameters, agent=None, environment=None):
+    def execute(self, params=None, agent=None, environment=None):
         response = "You did not successfully complete any move last time."
-        return NullMoveMoveOutcome(params=params, response=response)
+        return NullMoveOutcome(response=response)
