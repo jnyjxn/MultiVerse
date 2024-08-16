@@ -119,9 +119,6 @@ class Agent:
         if ephemeral:
             self.ephemeral_history.add_user_message(message)
             self.ephemeral_history.add_ai_message(response)
-        else:
-            self.internal_history.add_user_message(message)
-            self.internal_history.add_ai_message(response)
 
         return AgentResponse(response.content)
 

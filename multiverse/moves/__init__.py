@@ -46,26 +46,35 @@ class MoveManager:
     def __init__(self, max_retries_per_turn=3):
         self.max_retries_per_turn = max_retries_per_turn
         self.queued_moves: dict[str, Callable] = {}
-        self.previous_turn_results: dict[str, MoveOutcome] = {}
-        self.has_been_initially_briefed = False
 
         self.router = MoveRouter()
         self.router.register(AgentRequest())
         self.router.register(WorldAction())
 
+    def brief_agents(self, environment: "Environment"):
+        for agent in environment.agents.values():
+            self.queue_prompt(
+                self.agent_briefing_prompt_filename,
+                agent=agent,
+                environment=environment,
+            )
+
     def queue_prompt(
         self,
         prompt_filename: str,
-        agent: "Agent",
+        agent: "Agent | str",
         environment: "Environment",
+        template_context: MoveOutcome | None = None,
     ):
-        previous_turn_result = self.previous_turn_results.get(agent.name)
+        if type(agent) == str:
+            agent = environment.agents.get(agent)
+
         agent.queue_message(
             environment.render_prompt_template(
-                (prompt_filename),
+                prompt_filename,
                 agent=agent,
                 environment=environment,
-                template_context=previous_turn_result,
+                template_context=template_context,
             )
         )
 
@@ -73,17 +82,7 @@ class MoveManager:
         self,
         agent: "Agent",
         environment: "Environment",
-        previous_turn_result: MoveOutcome | None = None,
     ) -> Callable:
-        if not self.has_been_initially_briefed:
-            start_of_turn_prompt_filename = self.agent_briefing_prompt_filename
-        else:
-            start_of_turn_prompt_filename = previous_turn_result.result_prompt_filename
-
-        self.queue_prompt(
-            start_of_turn_prompt_filename, agent=agent, environment=environment
-        )
-
         for _ in range(self.max_retries_per_turn):
             turn_command = agent.evaluate_queued_messages()
             try:
@@ -111,13 +110,14 @@ class MoveManager:
     def prepare_turn(self, environment: "Environment"):
         self.queued_moves = {}
         for agent_name, agent in environment.agents.items():
-            self.queued_moves[agent_name] = self.prepare_agent_turn(
-                agent, environment, self.previous_turn_results.get(agent_name)
+            self.queued_moves[agent_name] = self.prepare_agent_turn(agent, environment)
+
+    def execute_turn(self, environment: "Environment"):
+        for agent_name, run_move in self.queued_moves.items():
+            move_outcome = run_move()
+            self.queue_prompt(
+                move_outcome.result_prompt_filename,
+                agent=agent_name,
+                environment=environment,
+                template_context=move_outcome,
             )
-
-        self.has_been_initially_briefed = True
-
-    def execute_turn(self):
-        self.previous_turn_results = {
-            k: move() for k, move in self.queued_moves.items()
-        }
