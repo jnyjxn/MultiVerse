@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -37,9 +38,14 @@ class AgentRequest(Move[AgentRequestParameters]):
     def execute(
         self, params: AgentRequestParameters, agent: "Agent", environment: "Environment"
     ):
+        return asyncio.run(self.execute_async(params, agent, environment))
+
+    async def execute_async(
+        self, params: AgentRequestParameters, agent: "Agent", environment: "Environment"
+    ):
         target_agent = environment.agents.get(params.target)
         for _ in range(self.max_retries + 1):
-            response = target_agent.request(
+            response = await target_agent.request_async(
                 environment.render_prompt_template(
                     "send_request.md", agent=agent, template_context=params
                 ),

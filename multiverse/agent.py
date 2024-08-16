@@ -1,5 +1,6 @@
 import re
 import copy
+import asyncio
 
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.prompts import (
@@ -99,7 +100,15 @@ class Agent:
 
         self.chain = prompt_template | self.model
 
-    def request(self, message: str, ephemeral: bool = False) -> AgentResponse:
+    def queue_message(self, message):
+        self.message_queue.append(message)
+
+    def clear_message_queue(self):
+        self.message_queue.clear()
+
+    async def request_async(
+        self, message: str, ephemeral: bool = False
+    ) -> AgentResponse:
         runnable = RunnableWithMessageHistory(
             self.chain,
             lambda _: (
@@ -111,7 +120,7 @@ class Agent:
             history_messages_key="history",
         )
 
-        response = runnable.invoke(
+        response = await runnable.ainvoke(
             {"input": message},
             config={"configurable": {"session_id": "global"}},
         )
@@ -122,20 +131,20 @@ class Agent:
 
         return AgentResponse(response.content)
 
-    def queue_message(self, message):
-        self.message_queue.append(message)
-
-    def clear_message_queue(self):
-        self.message_queue.clear()
-
-    def evaluate_queued_messages(self) -> AgentResponse:
+    async def evaluate_queued_messages_async(self) -> AgentResponse:
         if not self.message_queue:
             return AgentResponse("")
 
         combined_message = "\n\n\n".join(self.message_queue)
-        response = self.request(combined_message)
+        response = await self.request_async(combined_message)
         self.clear_message_queue()
         return response
+
+    def request(self, message: str, ephemeral: bool = False) -> AgentResponse:
+        return asyncio.run(self.request_async(message, ephemeral))
+
+    def evaluate_queued_messages(self) -> AgentResponse:
+        return asyncio.run(self.evaluate_queued_messages_async())
 
     @classmethod
     def from_dict(cls, config_dict):

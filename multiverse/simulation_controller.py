@@ -39,19 +39,33 @@ class SimulationController:
         self.save_recorded_histories(output_dir, pretty)
         self.save_ephemeral_histories(output_dir, pretty)
 
-    def one_move(self):
-        self.move_manager.prepare_turn(self.environment)
-        self.move_manager.execute_turn(self.environment)
+    def instantiate(self):
+        for agent in self.environment.agents:
+            self.move_manager.queue_prompt(
+                self.move_manager.agent_briefing_prompt_filename,
+                agent=agent,
+                environment=self.environment,
+            )
 
-    def run(self):
+    async def run_one_turn_async(self):
+        await self.move_manager.prepare_turn_async(self.environment)
+        await self.move_manager.execute_turn_async(self.environment)
+
+    def run_one_turn(self):
+        asyncio.run(self.run_one_turn_async())
+
+    async def run_async(self):
         now = "{:%Y-%m-%d_%H:%M:%S}".format(datetime.now())
         output_dir = Path("outputs") / self.experiment_name / now
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        self.move_manager.brief_agents(self.environment)
+        self.instantiate()
 
         for i in range(self.max_ticks):
-            self.one_move()
+            await self.run_one_turn_async()
             self.save_histories(output_dir)
             print("." * (i + 1))
+
+    def run(self):
+        return asyncio.run(self.run_async())

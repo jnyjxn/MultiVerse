@@ -1,6 +1,6 @@
 import re
 from abc import ABC, abstractmethod
-from typing import Optional, Type, TypeVar, ClassVar, Generic, TYPE_CHECKING
+from typing import Optional, Type, TypeVar, ClassVar, Generic, TYPE_CHECKING, Coroutine
 from dataclasses import dataclass, fields
 
 if TYPE_CHECKING:
@@ -65,3 +65,8 @@ class Move(ABC, Generic[T]):
         self, params: T, agent: "Agent", environment: "Environment"
     ) -> MoveOutcome:
         pass
+
+    async def execute_async(
+        self, params: T, agent: "Agent", environment: "Environment"
+    ) -> Coroutine:
+        return self.execute(params=params, agent=agent, environment=environment)
