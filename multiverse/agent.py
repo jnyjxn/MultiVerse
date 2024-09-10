@@ -9,6 +9,8 @@ from langchain_core.prompts import (
 )
 from langchain_community.chat_message_histories.in_memory import ChatMessageHistory
 
+from multiverse.config import Config, use_config
+
 
 def load_model_from_name(name, delimiter=":", **kwargs):
     if name.count(delimiter) != 1:
@@ -67,16 +69,21 @@ class AgentResponse:
         return self._is_valid
 
 
+class AgentConfig(Config):
+    required_keys = ["name", "objective", "model"]
+
+
+@use_config(AgentConfig)
 class Agent:
     def __init__(
         self,
-        name,
-        objective,
-        model,
-        context="",
-        capabilities=None,
-        knows_agents: bool | list[str] = True,
-        knows_world_entities: bool | list[str] = True,
+        name: str,
+        objective: str,
+        model: str,
+        context: str = "",
+        capabilities: list[str] | None = None,
+        knows_agents: list[str] | bool = True,
+        knows_world_entities: list[str] | bool = True,
     ):
         self.name = name
         self.objective = objective
@@ -145,12 +152,3 @@ class Agent:
 
     def evaluate_queued_messages(self) -> AgentResponse:
         return asyncio.run(self.evaluate_queued_messages_async())
-
-    @classmethod
-    def from_dict(cls, config_dict):
-        required_values = ["name", "objective", "model"]
-
-        for rv in required_values:
-            assert rv in config_dict, f"All agents must include a '{rv}'"
-
-        return cls(**config_dict)

@@ -1,37 +1,47 @@
-from .base import WorldEntityActionResult, WorldEntityNotFound
+from enum import Enum
+
+from multiverse.config import Config, use_config
 
 
+class WorldEntityActionResult(Enum):
+    SUCCESS = 0
+    NOOP = 1
+    FAIL__INVALID_PASSWORD = 2
+    FAIL__NOT_RECOGNISED = 3
+
+
+class WorldEntityNotFound(Exception):
+    """Raised when a WorldEntity name is not recognised from the current list of world entities"""
+
+
+class WorldEntityStateConfig(Config):
+    required_keys = ["name", "description"]
+
+
+class WorldEntityActionConfig(Config):
+    required_keys = ["name", "description", "from_states", "to_state"]
+
+
+@use_config(WorldEntityStateConfig)
 class WorldEntityState:
     def __init__(self, name, description):
         self.name = name
         self.description = description
 
-    @classmethod
-    def from_dict(cls, config_dict):
-        required_values = ["name", "description"]
 
-        for rv in required_values:
-            assert rv in config_dict, f"All world_entities.states must include a '{rv}'"
-
-        return cls(**config_dict)
-
-
+@use_config(WorldEntityActionConfig)
 class WorldEntityAction:
     def __init__(
         self,
         name: str,
         description: str,
-        effect: str,
-        allowed_states: list[WorldEntityState],
+        from_states: str | list[str],
+        to_state: str,
         password: str | None = None,
     ):
         self.name = name
         self.description = description
         self.password = password
-
-        from_states, to_state = WorldEntityActionUtils.parse_effect(
-            effect, allowed_states
-        )
 
         self.from_states = from_states
         self.to_state = to_state
@@ -41,19 +51,6 @@ class WorldEntityAction:
             return True
 
         return self.password in authentication_string
-
-    @classmethod
-    def from_dict(cls, config_dict, allowed_states):
-        required_values = ["name", "description", "effect"]
-
-        for rv in required_values:
-            assert (
-                rv in config_dict
-            ), f"All world_entities.actions must include a '{rv}'"
-
-        config_dict = {**dict(**config_dict), "allowed_states": allowed_states}
-
-        return cls(**config_dict)
 
 
 class WorldEntityActionUtils:
@@ -100,6 +97,10 @@ class WorldEntityActionUtils:
                     )
 
         return before, after
+
+
+class WorldEntityConfig(Config):
+    required_keys = ["name", "description", "states", "actions"]
 
 
 class WorldEntity:
@@ -159,17 +160,12 @@ class WorldEntity:
         return result
 
     @classmethod
-    def from_dict(cls, config_dict):
-        required_values = ["name", "description", "states", "actions"]
+    def from_config(cls, config: Config | WorldEntityConfig):
+        config = WorldEntityConfig.from_config(config)
 
-        for rv in required_values:
-            assert rv in config_dict, f"All world_entities must include a '{rv}'"
+        states = [WorldEntityState.from_config(s) for s in config.require("states")]
+        actions = [WorldEntityAction.from_config(a) for a in config.require("actions")]
 
-        states = [WorldEntityState.from_dict(s) for s in config_dict.pop("states")]
-        actions = [
-            WorldEntityAction.from_dict(a, states) for a in config_dict.pop("actions")
-        ]
+        config.update(states=states, actions=actions)
 
-        config_dict = {**dict(**config_dict), "states": states, "actions": actions}
-
-        return cls(**config_dict)
+        return cls(**config.as_raw())
